@@ -1,8 +1,8 @@
 datamodule:
-  class: pkg.data.datamodules.ADNIDataModule
+  class: pkg.data.datamodules.ADNITestDataModule
   args:
+    complete_only: true
     data:
-      #cached_samples: /project/aereditato/cestari/adni-mri-classification/experiments/troubleshooting/20260228_083552/samples.csv
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
       scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
       diagnostic_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/DXSUM_02Feb2026.csv
@@ -18,7 +18,7 @@ datamodule:
       test_size: 0.1
       val_size: 0.2
     loader:
-      batch_size: 4
+      batch_size: 8
       weighted_sampling: false
       shuffle: true
     transform:
@@ -38,7 +38,7 @@ datamodule:
 model:
   class: pkg.models.poe.PoE
   args:
-    n_modalities: 1
+    n_modalities: 2
     n_classes: 3
 
 optimizer:
@@ -54,7 +54,7 @@ criterion:
     
 trainer:
   max_epochs: 75
-  accum_steps: 16  # Effective batch size: 4*16 = 64
+  accum_steps: 8  # Effective batch size: 8*8 = 64
 
 callbacks:
   - class: pkg.callbacks.metrics.Metrics
@@ -71,6 +71,6 @@ callbacks:
       name: CosineAnnealingLR
       params:
         T_max: 75
-
+      
   - class: pkg.callbacks.test_report.TestReport
     args: {}

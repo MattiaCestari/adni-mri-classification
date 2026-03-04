@@ -3,8 +3,9 @@ import pandas as pd
 import nibabel as nib
 import numpy as np
 import os
+import random 
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 
 from pkg.utils.diagnosis_matching import match_diagnosis
 from pkg.utils.multimodality import create_multimodal_dataframe
@@ -14,9 +15,10 @@ from tqdm import tqdm
 class ADNIDataset(Dataset):
     
     def __init__(self,
-                 data_dir,
-                 scan_csv, 
-                 diagnostic_csv, 
+                 data_dir=None,
+                 scan_csv=None, 
+                 diagnostic_csv=None, 
+                 cached_samples=None,
                  modalities={
                      "MRI":["MRI-T1-3T"],
                      "PET":["PET-FDG"] }, 
@@ -27,6 +29,7 @@ class ADNIDataset(Dataset):
         self.data_dir = data_dir
         self.scan_csv = scan_csv
         self.diagnostic_csv = diagnostic_csv
+        self.cached_samples = cached_samples
         self.modalities = modalities 
         self.diagnosis = diagnosis
         self.tolerance = tolerance
@@ -34,44 +37,64 @@ class ADNIDataset(Dataset):
         
     def setup(self):
 
-        # Load csv with all scans descriptions
-        df_scan = pd.read_csv(self.scan_csv)
+        if self.cached_samples is not None:
 
-        # Filter for those available in the data dir
-        available_scans = os.listdir(self.data_dir)
-        df_scan = df_scan[ df_scan["image_id"].isin(available_scans)]
+            # Load multimodal samples from cache 
+            self.df_multimodal = pd.read_csv(self.cached_samples)
 
-        # Create modalities from groups as described in the parameter "modalities"
-        df_scan["modality"] = ""
+            # Create df_scan
+            modalities = list(self.modalities.keys())
 
-        for mode, groups in self.modalities.items():
-            df_scan.loc[df_scan["group"].isin(groups), "modality"] = mode 
+            series = []
 
-        # Filter for specified modalities 
-        df_scan = df_scan[ df_scan["modality"].isin(list(self.modalities.keys()))].copy()
+            for mode in modalities:
+                df = self.df_multimodal[ self.df_multimodal[mode].notna() ][mode]
+                series.append(df)
 
-        # Load csv with all visits
-        df_diagnostic = pd.read_csv(self.diagnostic_csv)
+            self.df_scan = pd.DataFrame( {"image_id":pd.concat(series)})
+            self.df_scan = self.df_scan.reset_index(drop=True)
 
-        if self.verbose > 0:
-            print("Matching scans to diagnoses...")
+        else:
 
-        # Match scans to visits, adding diagnosis column
-        df_scan = match_diagnosis(df_scan, df_diagnostic, self.tolerance)
+            # Load scans dataframe
+            df_scan = pd.read_csv(self.scan_csv)
 
-        # Filter for specified diagnosis
-        df_scan = df_scan[ df_scan["diagnosis"].isin(self.diagnosis)].copy()
+            # Filter for those available in the data dir
+            available_scans = os.listdir(self.data_dir)
+            df_scan = df_scan[ df_scan["image_id"].isin(available_scans)]
+
+            # Create modalities from groups as described in the parameter "modalities"
+            df_scan["modality"] = ""
+
+            for mode, groups in self.modalities.items():
+                df_scan.loc[df_scan["group"].isin(groups), "modality"] = mode 
+
+            # Filter for specified modalities 
+            df_scan = df_scan[ df_scan["modality"].isin(list(self.modalities.keys()))].copy()
+
+            # Load csv with all visits
+            df_diagnostic = pd.read_csv(self.diagnostic_csv)
+
+            if self.verbose > 0:
+                print("Matching scans to diagnoses...")
+
+            # Match scans to visits, adding diagnosis column
+            df_scan = match_diagnosis(df_scan, df_diagnostic, self.tolerance)
+
+            # Filter for specified diagnosis
+            self.df_scan = df_scan[ df_scan["diagnosis"].isin(self.diagnosis)].copy()
         
-        if self.verbose > 0:
-            print("Verifying scans available in dir...")
+            if self.verbose > 0:
+                print("Verifying scans available in dir...")
 
-        # Add file paths
+        # Add file paths to df_scan
         paths = []
-        for index, row in df_scan.iterrows():
+
+        for index, row in self.df_scan.iterrows():
 
             id = row["image_id"]
             allowed_filenames = ['clean_w_masked_m' + id + '.nii', 
-                                 'clean_w_masked_rstatic_' + id + '.nii']
+                                'clean_w_masked_rstatic_' + id + '.nii']
             
             found = False
             for fname in allowed_filenames:
@@ -85,23 +108,21 @@ class ADNIDataset(Dataset):
             if not found:
                 paths.append(None)
 
-        df_scan["path"] = paths
-        df_scan = df_scan[ df_scan["path"].notna()]
+        self.df_scan["path"] = paths
+        self.df_scan = self.df_scan[ self.df_scan["path"].notna()]
 
-        if self.verbose > 0:
-            print("Creating multimodal samples...")
+        if self.cached_samples is None:
 
-        # Create multimodal samples
-        df_multimodal = create_multimodal_dataframe(df_scan, tolerance=self.tolerance)
+            if self.verbose > 0:
+                print("Creating multimodal samples...")
+
+            # Create multimodal samples
+            self.df_multimodal = create_multimodal_dataframe(self.df_scan, tolerance=self.tolerance)
 
         # Add labels: map diagnosis to 0, ... , |classes|
         diag_to_label = {diag: i for i, diag in enumerate(self.diagnosis)}
-        df_multimodal['label'] = df_multimodal['diagnosis'].map(diag_to_label)
+        self.df_multimodal['label'] = self.df_multimodal['diagnosis'].map(diag_to_label)
 
-        # Save
-        self.df_scan = df_scan
-        self.df_multimodal = df_multimodal
-        
     def __len__(self):
         return len(self.df_multimodal)
     
@@ -126,11 +147,11 @@ class ADNIDataset(Dataset):
             scans.append(img)
             mask.append(1)
     
-        X = torch.stack(scans) if len(self.modalities) > 1 else scans[0]
+        X = torch.stack(scans)
         y = torch.tensor(int(row['label']), dtype=torch.long)
         mask = torch.tensor(mask)
 
-        return {"X":X, "y":y, "mask":mask}
+        return {"X":X, "y":y, "mask":mask, "key":row["strat_key"]}  # Include stratification key
 
     def groups(self):
         return self.df_multimodal["subject_id"].astype(str).tolist()
@@ -141,7 +162,55 @@ class ADNIDataset(Dataset):
     def strat_keys(self):
         return self.df_multimodal["strat_key"].astype(str).tolist()
 
+
+class ADNITestDataset(ADNIDataset):
+
+    def __init__(self,
+                 data_dir,
+                 scan_csv, 
+                 diagnostic_csv,
+                 cached_samples=None,
+                 modalities={
+                     "MRI":["MRI-T1-3T"],
+                     "PET":["PET-FDG"] }, 
+                 diagnosis=[1,2,3], 
+                 tolerance=180,
+                 verbose=2,
+                 size=None,
+                 complete_only=False):
     
+        self.data_dir = data_dir
+        self.scan_csv = scan_csv
+        self.diagnostic_csv = diagnostic_csv
+        self.modalities = modalities 
+        self.diagnosis = diagnosis
+        self.tolerance = tolerance
+        self.verbose = verbose
+        self.cached_samples = cached_samples
+
+        self.size = size
+        self.complete_only = complete_only
+
+    def setup(self):
+        super().setup()
+
+        if self.complete_only:
+
+            modes = list(self.modalities.keys())
+            mask = self.df_multimodal[modes].notna().all(axis=1)
+            self.df_multimodal = self.df_multimodal[mask]
+            self.df_multimodal = self.df_multimodal.reset_index(drop=True)
+
+        if self.size is not None:
+
+            # Take random subset of specified size 
+            indices = [i for i in range(len(self.df_multimodal))]
+            random.shuffle(indices)
+            indices = indices[:self.size]
+            self.df_multimodal = self.df_multimodal.iloc[ indices, : ]
+            self.df_multimodal = self.df_multimodal.reset_index(drop=True)
+
+
 class TransformDataset(Dataset):
     """
     Simple class that applies a transform to a dataset

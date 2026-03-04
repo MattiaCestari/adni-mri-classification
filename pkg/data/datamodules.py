@@ -1,16 +1,14 @@
-from .datasets import ADNIDataset, TransformDataset, DummyDataset
+from .datasets import ADNIDataset, TransformDataset, DummyDataset, ADNITestDataset
 from .splitter import Splitter
 from torch.utils.data import DataLoader, Subset
 from .augmentation import build_augmentation
 from .loaders import build_loader
 
-import torch
 import numpy as np 
 import pandas as pd
 import os
-
 import json
-from pathlib import Path
+
 
 class DataModule:
     """
@@ -64,16 +62,13 @@ class ADNIDataModule(DataModule):
         self._val_loader = None
         self._test_loader = None
 
+        # Create dataset
+        self.ds = ADNIDataset(**self.data_cfg)
+        
     def setup(self):
 
-        transform = None
-        if len(self.transform_cfg) > 0:
-            transform = build_augmentation(self.transform_cfg)
 
-        # Create dataset
-        self.ds = ADNIDataset(**self.data_cfg, transform=transform)
-
-        # Set it up
+        #Setup dataset
         self.ds.setup()
 
         # Create splitter
@@ -88,7 +83,7 @@ class ADNIDataModule(DataModule):
 
         # Get train and validation indices for each fold
         self.folds = splitter.cv_split()
-        
+
     def set_fold(self, idx):
 
         if idx > len(self.folds) - 1:
@@ -197,6 +192,26 @@ class ADNIDataModule(DataModule):
         df = df.apply(pd.to_numeric)
         df = df.round(3)
         return df
+
+class ADNITestDataModule(ADNIDataModule):
+    """
+    ADNI Datamodule with customizable size for quick testing. 
+    """
+    
+    def __init__(self, data, split, loader, transform, size=None, complete_only=False):
+        self.data_cfg = data
+        self.split_cfg = split
+        self.loader_cfg = loader
+        self.transform_cfg = transform
+
+        self.fold_index = 0
+
+        self._train_loader = None
+        self._val_loader = None
+        self._test_loader = None
+
+        # Create dataset
+        self.ds = ADNITestDataset(size=size,complete_only=complete_only, **self.data_cfg)
 
 
 class DummyDataModule(DataModule):

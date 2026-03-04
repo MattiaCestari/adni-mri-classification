@@ -35,11 +35,14 @@ class Metrics(Callback):
         for k, v in out.items():
             if hasattr(v, "detach"):
                 v = v.detach()
-            self.current_train_metrics[k] = self.current_train_metrics.get(k, 0) + v
+
+            # 🔧 CHANGED: store list instead of sum
+            self.current_train_metrics.setdefault(k, []).append(v)
 
     def on_train_epoch_end(self, context):
-        for k, v in self.current_train_metrics.items():
-            avg = v / self.batch_count if self.batch_count > 0 else v
+        for k, v_list in self.current_train_metrics.items():
+            # 🔧 CHANGED: average over actual occurrences
+            avg = sum(v_list) / len(v_list) if len(v_list) > 0 else 0
             context["metrics"]["train/" + k] = avg
             self.history_train_metrics.setdefault(k, []).append(avg)
 
@@ -52,11 +55,14 @@ class Metrics(Callback):
         for k, v in out.items():
             if hasattr(v, "detach"):
                 v = v.detach()
-            self.current_val_metrics[k] = self.current_val_metrics.get(k, 0) + v
+
+            # 🔧 CHANGED: store list instead of sum
+            self.current_val_metrics.setdefault(k, []).append(v)
 
     def on_val_epoch_end(self, context):
-        for k, v in self.current_val_metrics.items():
-            avg = v / self.batch_count if self.batch_count > 0 else v
+        for k, v_list in self.current_val_metrics.items():
+            # 🔧 CHANGED: average over actual occurrences
+            avg = sum(v_list) / len(v_list) if len(v_list) > 0 else 0
             context["metrics"]["val/" + k] = avg
             self.history_val_metrics.setdefault(k, []).append(avg)
 

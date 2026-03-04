@@ -240,33 +240,38 @@ def build_augmentation(cfg: list) -> tio.Compose:
                 tio.Lambda(
                     lambda x: random_crop(
                         x,
-                        float(params.get('min_scale', 0.5)),
-                        float(params.get('max_scale', 1.0)),
+                        params.get('min_scale', 0.5),
+                        params.get('max_scale', 1.0),
                     ),
-                    p=float(params.get('p', 0.5)),
+                    p=params.get('p', 0.5),
                 )
             )
             
-        if name == 'random_flip':
+        elif name == 'random_flip':
             transforms.append(
-                tio.RandomFlip(axes=('LR',), p=float(params.get('p', 0.5)))
+                tio.RandomFlip(axes=('LR',), p=params.get('p', 0.5))
+            )
+
+        elif name == 'random_blur':
+            transforms.append(
+                tio.RandomBlur(std=params.get('std',0.1), p=params.get('p', 0.5))
             )
 
         elif name == 'random_affine':
             transforms.append(
                 tio.RandomAffine(
-                    scales=float(params.get('scales',0)),
-                    degrees=float(params.get('degrees', 10)),
-                    translation=float(params.get('translation',10)),
-                    p=float(params.get('p', 0.5)),
+                    scales=params.get('scales',0),
+                    degrees=params.get('degrees', 10),
+                    translation=params.get('translation',10),
+                    p=params.get('p', 0.5),
                 )
             )
         
         elif name == 'random_noise':
             transforms.append(
                 tio.RandomNoise(
-                    std=float(params.get('std', 0.05)),
-                    p=float(params.get('p', 0.2))
+                    std=params.get('std', 0.05),
+                    p=params.get('p', 0.2)
                 )
             )
             

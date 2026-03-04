@@ -110,17 +110,17 @@ class ResNet18(BaseModel):
 
     def train_batch(self, batch, batch_idx):
         X,y = batch
-        y_hat = self.forward(X)
-        loss = self.criterion(y_hat, y)
+        out = self.forward(X)
+        loss = self.criterion(out, y)
         return loss, {"loss":float(loss.item())}
 
     def validate_batch(self, batch, batch_idx):
         X,y = batch
-        y_hat = self.forward(X)
-        loss = self.criterion(y_hat, y)
+        out = self.forward(X)
+        loss = self.criterion(out, y)
         return {"loss":float(loss.item())}
 
     def test_batch(self, batch, batch_idx):
         X,y = batch
-        y_hat = self.forward(X)
+        y_hat = self.forward(X).argmax(dim=1)
         return {"preds":y_hat, "targets":y}

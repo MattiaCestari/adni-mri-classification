@@ -130,7 +130,9 @@ class Trainer:
             for i, batch in enumerate(self.datamodule.test_dataloader()):
 
                 # Move tensors to device
-                batch = (batch[0].to(self.device), batch[1].to(self.device))
+                for k, v in batch.items():    
+                    if isinstance(v, torch.Tensor):
+                        batch[k] = v.to(self.device)
 
                 self.cb.on_test_batch_start(self.ctx)
                 out = self.ctx["model"].test_batch(batch, i)
@@ -152,8 +154,10 @@ class Trainer:
         for i, batch in enumerate(train_loader):
 
             # Move tensors to device
-            batch = (batch[0].to(self.device), batch[1].to(self.device))
-
+            for key, v in batch.items():    
+                if isinstance(v, torch.Tensor):
+                    batch[key] = v.to(self.device)
+     
             self.cb.on_train_batch_start(self.ctx)
             loss, step_out = self.model.train_batch(batch, i)
 
@@ -170,6 +174,7 @@ class Trainer:
             
         if self.automatic_optimization and (i+1)%k != 0:
             self.optimizer.step()
+            self.optimizer.zero_grad()
 
     def validate_epoch(self, epoch):
 
@@ -178,7 +183,9 @@ class Trainer:
         for i, batch in enumerate(val_loader):
 
             # Move tensors to device
-            batch = (batch[0].to(self.device), batch[1].to(self.device))
+            for key, v in batch.items():    
+                if isinstance(v, torch.Tensor):
+                    batch[key] = v.to(self.device)
 
             self.cb.on_val_batch_start(self.ctx)
             step_out = self.model.validate_batch(batch, i)
