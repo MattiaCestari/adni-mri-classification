@@ -2,6 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def swish(x):
+    """https://arxiv.org/abs/1710.05941"""
+    return x * F.sigmoid(x)
+
+class Swish(nn.Module):
+    def forward(self, x):
+        return swish(x)
+    
 class SAM3d(nn.Module):
     """
     3d Spatial attention module
@@ -25,22 +33,24 @@ class SAM3d(nn.Module):
 
 class ResidualBlock(nn.Module):
     
-    def __init__(self, channel_in, channel_out, kernel_size=3, stride=1, sam=False):
+    def __init__(self, channel_in, channel_out, kernel_size=3, stride=1, use_sam=True, use_swish=True):
         super().__init__()
+
+        self.use_swish = use_swish
 
         self.residual = nn.Sequential(
             nn.Conv3d(channel_in, channel_out, kernel_size, stride=stride, padding=kernel_size//2),
             nn.GroupNorm(8, channel_out),
-            nn.ReLU(),
+            Swish() if use_swish else nn.ReLU(),
             nn.Conv3d(channel_out, channel_out, kernel_size, padding=kernel_size//2),
             nn.GroupNorm(8, channel_out),
-            SAM3d() if sam else nn.Identity(),
+            SAM3d() if use_sam else nn.Identity(),
         )
         
         self.skip1 = nn.Conv3d(channel_in, channel_out, 1, stride=stride, padding=0)
         
     def forward(self, x):
         
-        x = F.relu(self.residual(x) + self.skip1(x))
-        
+        x = self.residual(x) + self.skip1(x)
+        x = swish(x) if self.use_swish else F.relu(x)
         return x

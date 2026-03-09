@@ -2,6 +2,8 @@
 import torch 
 from tqdm import tqdm
 
+from pkg.training.optimizer import build_optimizer
+
 class CallbacksList:
     def __init__(self, callbacks):
         self.callbacks = callbacks or []
@@ -58,43 +60,58 @@ class CallbacksList:
     def on_test_end(self, context):
         self._call("on_test_end", context)
 
+    def on_stage_change(self, context):
+        self._call("on_stage_change", context)
+
 
 class Trainer:
 
-    def __init__(self, model, optimizer, datamodule, callbacks, 
+    def __init__(self, model, datamodule, callbacks,  optimizer_cfg, 
                  max_epochs=100,  
                  dir=None,
                  automatic_optimization=True,
-                 accum_steps=1):
+                 accum_steps=1,
+                 stages=[],
+                 reset_optim=True):
 
         self.model = model
-        self.optimizer = optimizer
+        self.optimizer_cfg = optimizer_cfg
         self.datamodule = datamodule
         self.max_epochs = max_epochs
         self.accum_steps = accum_steps
         self.automatic_optimization = automatic_optimization
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.stages = stages
+        self.reset_optim = reset_optim
 
         # Move model to device
         self.model = self.model.to(self.device)
+        
+        # Create callbacks list
+        self.cb = CallbacksList(callbacks)
+
+        # Build optimizer 
+        self.optimizer = build_optimizer(optimizer_cfg, self.model.parameters())
 
         # Create context
         self.ctx = { 
-                     "model":self.model,
-                     "optimizer":self.optimizer,
-                     "metrics":{},
-                     "signals":{ 
-                         "early_stop":False
-                      },
-                     "dir":dir, 
-                    }
-
-        # Create callbacks list
-        self.cb = CallbacksList(callbacks)
+            "epoch":1,
+            "stage":0,
+            "model":self.model,
+            "optimizer":self.optimizer,
+            "metrics":{},
+            "signals":{ 
+                "early_stop":False
+            },
+            "dir":dir,
+            "device":self.device, 
+        }
 
     def fit(self):
 
         self.cb.on_fit_start(self.ctx)
+
+        print("Stage 0")
 
         for epoch in range(1,self.max_epochs+1):
 
@@ -102,6 +119,22 @@ class Trainer:
             if self.ctx["signals"]["early_stop"]:
                 break 
 
+            # Set epoch in context
+            self.ctx["epoch"] = epoch
+            
+            # Stage update logic
+            new_stage = self._get_stage(epoch)
+            if new_stage != self.ctx["stage"]: # Transition between stages 
+                if self.reset_optim:
+                    self.ctx["optimizer"] = build_optimizer(
+                                self.optimizer_cfg, 
+                                model_params=self.ctx["model"].parameters()
+                    )
+                    self.optimizer = self.ctx["optimizer"]
+                self.ctx["stage"] = new_stage
+                self.cb.on_stage_change(self.ctx)
+                print(f"Stage {new_stage}")
+            
             print(f"Epoch {epoch}")
 
             # Train
@@ -159,7 +192,7 @@ class Trainer:
                     batch[key] = v.to(self.device)
      
             self.cb.on_train_batch_start(self.ctx)
-            loss, step_out = self.model.train_batch(batch, i)
+            loss, step_out = self.model.train_batch(batch, i, stage=self.ctx["stage"])
 
             if self.automatic_optimization:
                 (loss/k).backward()
@@ -188,5 +221,17 @@ class Trainer:
                     batch[key] = v.to(self.device)
 
             self.cb.on_val_batch_start(self.ctx)
-            step_out = self.model.validate_batch(batch, i)
+            step_out = self.model.validate_batch(batch, i, stage=self.ctx["stage"])
             self.cb.on_val_batch_end(self.ctx, step_out, batch, i)
+
+    def _get_stage(self, epoch):
+        """
+        Returns stage index given current epoch
+        """
+        stage = 0
+
+        for limit in self.stages: 
+            if epoch > limit:
+                stage += 1 
+
+        return stage

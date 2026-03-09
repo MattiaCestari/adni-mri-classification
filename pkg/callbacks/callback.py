@@ -45,4 +45,7 @@ class Callback():
     def on_test_end(self, context):
         pass
 
+    def on_stage_change( self, context):
+        pass 
+
 

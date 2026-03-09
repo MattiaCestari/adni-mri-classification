@@ -6,7 +6,6 @@ import argparse
 import subprocess
 import shutil
 
-from pkg.training.optimizer import build_optimizer
 from pkg.training.criterion import build_criterion
 from pkg.utils.instantiate import instantiate
 from pkg.training.trainer import Trainer
@@ -82,11 +81,8 @@ def main(config_file, exp_dir):
         # Set current fold
         dm.set_fold(fold)
 
-        # Build model, optimizer, and criterion
+        # Build model and criterion 
         model = instantiate(cfg["model"])
-
-        # Create modalities from groups as described in the parameter
-        optim = build_optimizer(cfg["optimizer"], model_params=model.parameters())
         criterion = build_criterion(cfg["criterion"], train_labels=dm.train_labels)
 
         # Set criterion on model
@@ -96,7 +92,7 @@ def main(config_file, exp_dir):
         callbacks = instantiate(cfg["callbacks"])
 
         # Build trainer 
-        trainer = Trainer(model, optim, dm, callbacks, dir=fold_dir, **cfg["trainer"])
+        trainer = Trainer(model, dm, callbacks, cfg["optimizer"], dir=fold_dir, **cfg["trainer"])
         
         # Fit model 
         trainer.fit()

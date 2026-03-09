@@ -9,7 +9,9 @@ SCHEDULER_REGISTRY = {
 }
 
 class SchedulerPolicy(Callback):
-
+    """
+    Implements LR scheduler policy, as well as stages for curriculum learning. 
+    """
     def __init__(self, name, params, priority=10):
         
         if name not in SCHEDULER_REGISTRY:
@@ -23,10 +25,16 @@ class SchedulerPolicy(Callback):
 
     def on_fit_start(self, context):
 
-        # Get optimizer from context.task and initialize scheduler
+        # Get optimizer from context and initialize scheduler
         optim = context["optimizer"]
         self.scheduler = self.conf["class"](optim, **self.params)
+    
+    def on_stage_change(self, context):
 
+        # Rebuild scheduler at every new stage
+        optim = context["optimizer"]
+        self.scheduler = self.conf["class"](optim, **self.params)
+    
     def on_train_batch_end(self, context, out, batch, batch_idx):
         if self.conf["step_on"] == "batch":
             self.scheduler.step()

@@ -1,0 +1,80 @@
+datamodule:
+  class: pkg.data.datamodules.ADNITestDataModule
+  args:
+    complete_only: true
+    data:
+      data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
+      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
+      diagnostic_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/DXSUM_02Feb2026.csv
+      diagnosis: [1, 2, 3]
+      tolerance: 180
+      modalities:
+        #PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
+        #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
+        PET-fdg: ["PET-FDG"]
+        MRI: ["MRI-T1-3T", "MRI-T1-1.5T"]
+    split:
+      mode: kfold
+      seed: 42
+      folds: 5
+      test_size: 0.15
+      val_size: 0.1
+    loader:
+      batch_size: 8
+      weighted_sampling: false
+      shuffle: true
+    transform:
+      - random_flip:
+          p: 0.5
+      - random_affine:
+          p: 0.5
+          degrees: 5
+          translation: 5
+      - random_noise:
+          p: 0.2
+          std: [0, 0.1]
+      - random_blur:
+          p: 1
+          std: 0.8
+
+model:
+  class: pkg.models.poe.PoE
+  args:
+    n_modalities: 2
+    n_classes: 3
+    training_combos: [ [0], [1]] # Train with unimodality loss only
+
+optimizer:
+  name: AdamW
+  params:
+    lr: 0.00005
+    weight_decay: 0.01
+
+criterion:
+  name: CrossEntropyLoss
+  weights: auto
+  params: {}
+    
+trainer:
+  max_epochs: 75
+  accum_steps: 8  # Effective batch size: 8*8 = 64
+
+callbacks:
+  - class: pkg.callbacks.metrics.Metrics
+    args: {}
+
+  - class: pkg.callbacks.checkpoint.CheckpointManager
+    args: 
+      monitor: val/loss
+      mode: min 
+      patience: 100
+
+  - class: pkg.callbacks.scheduler.SchedulerPolicy
+    args: 
+      name: CosineAnnealingLR
+      params:
+        T_max: 75
+        eta_min: 0.000001
+      
+  - class: pkg.callbacks.test_report.TestReport
+    args: {}

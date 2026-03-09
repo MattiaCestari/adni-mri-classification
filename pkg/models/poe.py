@@ -48,12 +48,16 @@ class Expert(nn.Module):
 
 class PoE(BaseModel):
 
-    def __init__(self, n_classes, n_modalities, latent_dim=128, dropout=0):
+    def __init__(self, n_classes, n_modalities, training_combos=None, latent_dim=128, dropout=0, staged_training=False):
         super().__init__()
         
         self.n_classes = n_classes
         self.n_modalities = n_modalities
         self.latent_dim = latent_dim
+        self.staged_training = staged_training
+
+        if self.staged_training:
+            self.head_frozen = False
 
         self.experts = nn.ModuleList([  Expert(latent_dim) for i in range(n_modalities) ])
 
@@ -64,27 +68,54 @@ class PoE(BaseModel):
             nn.Linear(128, n_classes)
         )
 
+        # If training combinations are not specified, compute them
+        if training_combos is None and not staged_training:
+            self.training_combos = []
+            for r in range(1, self.n_modalities + 1):
+                for combo in combinations(range(self.n_modalities), r):
+                    self.training_combos.append(list(combo))
+
+        else:
+            self.training_combos = training_combos
+
     def set_criterion(self, criterion):
         
         # Set reduction to none to compute masked loss
         criterion.reduction = "none"
         self.criterion = criterion
     
-    def forward_experts(self, X):
-
+    def forward_experts(self, X, modes="all"):
         """
-        Runs all experts on the batch. 
+        Runs specified experts on the batch.
+
+        Returns
+        -------
+        mus : (B, M, L)
+        logvars : (B, M, L)
+
+        Non-requested modalities are filled with zeros.
         """
+        B = X.shape[0]
+        device = X.device
+        dtype = X.dtype
 
-        mus, logvars = [], []
+        # figure out latent dim once
+        latent_dim = self.latent_dim   # or however you store it
 
-        for i, expert in enumerate(self.experts):
-            mu_i, logvar_i = expert(X[:, i])   # (B, L)
-            mus.append(mu_i)
-            logvars.append(logvar_i)
-            
-        mus = torch.stack(mus, dim=1)           # (B, M, L)
-        logvars = torch.stack(logvars, dim=1)   # (B, M, L)
+        mus = torch.zeros(B, self.n_modalities, latent_dim, device=device, dtype=dtype)
+        logvars = torch.zeros(B, self.n_modalities, latent_dim, device=device, dtype=dtype)
+
+        if modes == "all":
+            mode_indices = range(self.n_modalities)
+        elif isinstance(modes, (tuple, list)):
+            mode_indices = modes
+        else:
+            raise ValueError("modes must be 'all' or a tuple/list of modality indices")
+
+        for i in mode_indices:
+            mu_i, logvar_i = self.experts[i](X[:, i])   # (B, L)
+            mus[:, i] = mu_i
+            logvars[:, i] = logvar_i
 
         return mus, logvars
     
@@ -100,8 +131,8 @@ class PoE(BaseModel):
         mu = var*( T*mus*mask ).sum(dim=1)  # (B, L)
 
         return self.classifier(mu)  #(B, n_classes)
-        
-    def train_batch(self, batch, batch_index):
+    
+    def train_batch(self, batch, batch_index, stage=None):
 
         X = batch["X"]
         y = batch["y"]
@@ -111,12 +142,38 @@ class PoE(BaseModel):
         total_loss = 0.0
         n_losses = 0
 
-        # Compute all experts once
-        mus, logvars = self.forward_experts(X)  # (B, M, L)
+        if self.staged_training:
+            if stage == 0: 
+                # Optimize first expert + head 
+                self.training_combos = [ [0,] ]
+                
+            elif stage > 0 and stage <= self.n_modalities-1:
+                
+                # Freeze head
+                if not self.head_frozen:
+                    for param in self.classifier.parameters(): 
+                        param.requires_grad = False
+                    self.head_frozen = True
 
-        # Precompute combos once in __init__ ideally; shown inline here
-        for r in range(1, self.n_modalities + 1):
-            for combo in combinations(range(self.n_modalities), r):
+                self.training_combos = [ [stage,] ] # Optimize single experts 
+
+            else: 
+                # Unfreeze head
+                if self.head_frozen: 
+                    for param in self.classifier.parameters(): 
+                        param.requires_grad = True
+                    self.head_frozen = False
+
+                # Optimize all experts together
+                self.training_combos = [ [i for i in range(self.n_modalities)] ]
+
+        # Compute required modalities (union of combos) to be forwarded once 
+        required_modes = sorted(set(i for combo in self.training_combos for i in combo))
+
+        # Compute required experts once
+        mus, logvars = self.forward_experts(X, modes=required_modes)  # (B, M, L)
+
+        for combo in self.training_combos:
 
                 current = mask[:, combo].bool().all(dim=1)
                 if not current.any():
@@ -147,8 +204,9 @@ class PoE(BaseModel):
         
         return loss, out
 
-    def validate_batch(self, batch, batch_index):
-        loss, dic = self.train_batch(batch, batch_index)
+
+    def validate_batch(self, batch, batch_index, stage=None):
+        loss, dic = self.train_batch(batch, batch_index, stage=stage)
         return dic
 
     @torch.no_grad()

@@ -11,14 +11,14 @@ class BaseModel(nn.Module):
         """
         self.criterion = criterion
 
-    def train_batch(self, batch, batch_index) -> tuple[torch.Tensor, dict]:
+    def train_batch(self, batch, batch_index, stage=None) -> tuple[torch.Tensor, dict]:
         """
         Trains model on a batch. Returns the loss tensor
         and a dict with metrics.
         """
         pass 
 
-    def validate_batch(self, batch, batch_index) -> dict:
+    def validate_batch(self, batch, batch_index, stage=None) -> dict:
         """
         Validates the model on a batch. Returns dict with metrics.
         """
