@@ -196,7 +196,7 @@ class PoE(BaseModel):
         # avoid div-by-zero
         if n_losses == 0:
             total_loss = torch.zeros((), device=y.device, requires_grad=True)
-            out["loss"] = 0.0
+            #out["loss"] = 0.0
             return total_loss, out
 
         loss = total_loss / n_losses

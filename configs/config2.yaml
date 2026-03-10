@@ -1,8 +1,7 @@
 datamodule:
   class: pkg.data.datamodules.ADNITestDataModule
   args:
-    complete_only: true
-    size: 100
+    size: 50
     data:
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
       scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
@@ -10,18 +9,18 @@ datamodule:
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:
-        #PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
-        #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
-        PET-fdg: ["PET-FDG"]
-        MRI: ["MRI-T1-1.5T"]
+        PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
+        PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
+        #PET-fdg: ["PET-FDG"]
+        #MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
     split:
-      mode: kfold
+      mode: holdout
       seed: 42
       folds: 5
       test_size: 0.15
       val_size: 0.1
     loader:
-      batch_size: 8
+      batch_size: 4
       weighted_sampling: false
       shuffle: true
     transform:
@@ -49,7 +48,7 @@ optimizer:
   name: AdamW
   params:
     lr: 0.00005
-    weight_decay: 0.01
+    weight_decay: 0
 
 criterion:
   name: CrossEntropyLoss
@@ -57,9 +56,9 @@ criterion:
   params: {}
     
 trainer:
-  max_epochs: 6
-  accum_steps: 8  # Effective batch size: 8*8 = 64
-  stages: [ 2, 4 ]
+  max_epochs: 105
+  accum_steps: 16  # Effective batch size: 16*4 = 64
+  stages: [ 35, 70 ]
 
 callbacks:
   - class: pkg.callbacks.metrics.Metrics
@@ -75,8 +74,7 @@ callbacks:
     args: 
       name: CosineAnnealingLR
       params:
-        T_max: 50
-        eta_min: 0.00001
+        T_max: 75
       
   - class: pkg.callbacks.test_report.TestReport
     args: {}

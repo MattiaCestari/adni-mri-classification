@@ -84,7 +84,7 @@ class Metrics(Callback):
         all_metrics = { "train/"+k: v for k, v in self.history_train_metrics.items() }
         for k, v in self.history_val_metrics.items():
             all_metrics["val/" + k] = v
-        plot_metrics(os.path.join(context["dir"], f"metrics_stage{context['stage']}.png"), all_metrics)
+        plot_metrics(os.path.join(context["dir"], f"metrics_stage_{context['stage']}.png"), all_metrics)
 
     def on_stage_change(self, context):
 
@@ -93,10 +93,10 @@ class Metrics(Callback):
             all_metrics = { "train/"+k: v for k, v in self.history_train_metrics.items() }
             for k, v in self.history_val_metrics.items():
                 all_metrics["val/" + k] = v
-            plot_metrics(os.path.join(context["dir"], f"metrics_stage{context['stage']-1}.png"), all_metrics)
+            plot_metrics(os.path.join(context["dir"], f"metrics_stage_{context['stage']-1}.png"), all_metrics)
 
         # Update log csv 
-        self.log_csv = os.path.join(context["dir"], f"metrics_stage{context['stage']}.csv")
+        self.log_csv = os.path.join(context["dir"], f"metrics_stage_{context['stage']}.csv")
         self.first_epoch = True
 
         # Reset metrics

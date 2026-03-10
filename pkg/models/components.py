@@ -33,7 +33,7 @@ class SAM3d(nn.Module):
 
 class ResidualBlock(nn.Module):
     
-    def __init__(self, channel_in, channel_out, kernel_size=3, stride=1, use_sam=True, use_swish=True):
+    def __init__(self, channel_in, channel_out, kernel_size=3, stride=1, use_sam=False, use_swish=False):
         super().__init__()
 
         self.use_swish = use_swish
