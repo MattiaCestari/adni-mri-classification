@@ -17,7 +17,10 @@ class ADNIDataset(Dataset):
     def __init__(self,
                  data_dir=None,
                  scan_csv=None, 
-                 diagnostic_csv=None, 
+                 diagnostic_csv=None,
+                 adas_csv=None,
+                 mmse_csv=None,
+                 cdr_csv=None,
                  cached_samples=None,
                  modalities={
                      "MRI":["MRI-T1-3T"],

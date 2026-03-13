@@ -1,7 +1,7 @@
 datamodule:
   class: pkg.data.datamodules.ADNITestDataModule
   args:
-    size: 50
+    complete_only: true
     data:
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
       scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
@@ -9,18 +9,19 @@ datamodule:
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:
-        PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
-        PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
-        #PET-fdg: ["PET-FDG"]
-        #MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
+        #PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
+        #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
+        PET-fdg: ["PET-FDG"]
+        MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
+        #MRI: ["MRI-T1-3T"]
     split:
-      mode: holdout
+      mode: kfold
       seed: 42
       folds: 5
       test_size: 0.15
       val_size: 0.1
     loader:
-      batch_size: 4
+      batch_size: 8
       weighted_sampling: false
       shuffle: true
     transform:
@@ -42,6 +43,9 @@ model:
   args:
     n_modalities: 2
     n_classes: 3
+    latent_dim: 256
+    dropout: 0.1
+    base: 8
     staged_training: True
 
 optimizer:
@@ -57,7 +61,7 @@ criterion:
     
 trainer:
   max_epochs: 105
-  accum_steps: 16  # Effective batch size: 16*4 = 64
+  accum_steps: 4  # Effective batch size: 16*4 = 64
   stages: [ 35, 70 ]
 
 callbacks:

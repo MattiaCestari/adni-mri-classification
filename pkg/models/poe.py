@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .base import BaseModel
-from .components import ResidualBlock
+from .components import ResidualBlock, Swish, SelfAttention3D
 from itertools import combinations
 
 # TODO: [OK] log unimodal losses and multimodal losses separately
@@ -13,22 +13,24 @@ from itertools import combinations
 
 class Expert(nn.Module):
 
-    def __init__(self, latent_dim, base=16):
+    def __init__(self, latent_dim, base=16, use_swish=True):
         super().__init__()
 
         self.net = nn.Sequential(
 
             nn.Conv3d(1, base, kernel_size=3, stride=2, padding=1),
             nn.GroupNorm(4, base),
-            nn.ReLU(inplace=True),
+            Swish() if use_swish else nn.ReLU(inplace=True),
 
-            ResidualBlock(base, base),
+            ResidualBlock(base, base, use_swish=use_swish),
 
-            ResidualBlock(base, base*2, stride=2),
-            ResidualBlock(base*2, base*2),
+            ResidualBlock(base, base*2, stride=2, use_swish=use_swish),
+            ResidualBlock(base*2, base*2, use_swish=use_swish),
 
-            ResidualBlock(base*2, base*4, stride=2),
-            ResidualBlock(base*4, base*4),
+            ResidualBlock(base*2, base*4, stride=2, use_swish=use_swish),
+            ResidualBlock(base*4, base*4, use_swish=use_swish),
+
+            SelfAttention3D(base*4, base), 
 
             nn.AdaptiveAvgPool3d(1),
             nn.Flatten(),
@@ -48,7 +50,7 @@ class Expert(nn.Module):
 
 class PoE(BaseModel):
 
-    def __init__(self, n_classes, n_modalities, training_combos=None, latent_dim=128, dropout=0, staged_training=False):
+    def __init__(self, n_classes, n_modalities, base=16, training_combos=None, latent_dim=128, dropout=0, staged_training=False):
         super().__init__()
         
         self.n_classes = n_classes
@@ -59,7 +61,7 @@ class PoE(BaseModel):
         if self.staged_training:
             self.head_frozen = False
 
-        self.experts = nn.ModuleList([  Expert(latent_dim) for i in range(n_modalities) ])
+        self.experts = nn.ModuleList([  Expert(latent_dim, base=base) for i in range(n_modalities) ])
 
         self.classifier = nn.Sequential(
             nn.Linear(latent_dim, 128),
@@ -196,7 +198,6 @@ class PoE(BaseModel):
         # avoid div-by-zero
         if n_losses == 0:
             total_loss = torch.zeros((), device=y.device, requires_grad=True)
-            #out["loss"] = 0.0
             return total_loss, out
 
         loss = total_loss / n_losses

@@ -1,7 +1,33 @@
 import pandas as pd
 
-from tqdm import tqdm
 
+def match_mental_scores(df_scan, 
+                df_visit, 
+                tolerance, 
+                column=["diagnosis", "DIAGNOSIS"], 
+                date_col=["exam_date","EXAMDATE"]):
+    """
+
+    """
+
+    to_concat = []
+
+    df_scan = df_scan.copy()
+    df_visits = df_visits.copy()
+
+    # Rename columns 
+    df_visits = df_visits.rename(columns={column[1]:column[0], date_col[1]:date_col[0]})
+ 
+    date_col = date_col[0]
+
+    # Ensure datetime dtype once
+    df_visits[date_col] = pd.to_datetime(df_visits[date_col])
+    df_scan[date_col] = pd.to_datetime(df_scan[date_col])
+    
+    # Keep track of original cols to preserve (+ diagnosis and exam date)
+    cols_to_keep = df_scan.columns.tolist() + ["diagnosis", "exam_date"]
+
+    pass 
 
 def match_diagnosis(df_scan, df_diagnostic, tolerance):
         """
