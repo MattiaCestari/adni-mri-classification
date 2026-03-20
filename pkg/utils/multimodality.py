@@ -3,6 +3,7 @@ import pandas as pd
 from pysat.examples.rc2 import RC2
 from pysat.formula import WCNF
 from tqdm import tqdm
+import numpy as np
 
 def create_multimodal_samples(scans, tolerance):
         """
@@ -43,6 +44,9 @@ def create_multimodal_samples(scans, tolerance):
 
         if scans.empty:
             return ([], [])
+
+        # Ensure right data type 
+        scans["image_date"] = pd.to_datetime(scans["image_date"])
 
         # Get lowest count modality
         min_mode = scans.groupby("modality")["image_id"].nunique().idxmin()
@@ -141,7 +145,7 @@ def create_multimodal_samples(scans, tolerance):
         return (ret, used_ids)
 
 
-def create_multimodal_dataframe(df_scans, tolerance=180, passes=2):
+def create_multimodal_dataframe(df_scans, tolerance=180, passes=2, extra_vars=["age", "gender", "MMSE", "CDR"]):
 
         # Entries for mmodal dataframe
         entries = []
@@ -188,8 +192,10 @@ def create_multimodal_dataframe(df_scans, tolerance=180, passes=2):
 
         # Add stratification keys: diagnosis + presence of scan belonging to different groups
         # (MRI 3T, MRI 1.5T, PET-FDG, PET-AV45, PET-AV1451, PET-FBB, PET-MK6240, PET-NAV4694, PET-PI2620)
-
         keys = []
+
+        # Add extra variables as well
+        to_concat = []
 
         for index, row in df_final.iterrows():
 
@@ -198,22 +204,47 @@ def create_multimodal_dataframe(df_scans, tolerance=180, passes=2):
 
             # Get scans list
             scans = []
+            matched_rows = []
+
             for mode in modalities:
-                if row[mode] is not None:
-                    scans.append(row[mode])
+                if mode in row.index:
+                    scan_id = row[mode]
+                    scans.append(scan_id)
+
+                    if not pd.isna(scan_id):
+                        matched_rows.append(
+                            df_scans.loc[df_scans["image_id"] == scan_id, extra_vars].iloc[0]
+                        )
+                else:
+                    scans.append(np.nan)
+
+            # Build one combined row of extra vars
+            if matched_rows:
+                matched_df = pd.DataFrame(matched_rows)
+
+                extra_values = {}
+                for col in extra_vars:
+                    if pd.api.types.is_numeric_dtype(matched_df[col]):
+                        extra_values[col] = matched_df[col].mean()
+                    else:
+                        # for categorical vars like gender, take first non-null value
+                        non_null = matched_df[col].dropna()
+                        extra_values[col] = non_null.iloc[0] if not non_null.empty else np.nan
+            else:
+                extra_values = {col: np.nan for col in extra_vars}
+
+            to_concat.append(extra_values)
 
             # For each group, check if there's a scan belonging to that group
-            # (the assumption is that modalities are disjoint sets of groups, 
-            # so a group can appear in only one modality)
             for group in sorted(df_scans["group"].unique()):
-
-                if group in df_scans[ df_scans["image_id"].isin(scans) ]["group"].tolist():
+                if group in df_scans[df_scans["image_id"].isin(scans)]["group"].tolist():
                     key += "1"
                 else:
                     key += "0"
 
             keys.append(key)
 
+        df_final[extra_vars] = pd.DataFrame(to_concat, index=df_final.index)
         df_final["strat_key"] = keys
 
         return df_final

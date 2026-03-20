@@ -9,10 +9,27 @@ function static_pet = make_pet_static(nii_dir)
     spm('Defaults','PET');
     spm_jobman('initcfg');
 
-    % List .nii files
+    % List .nii.gz files
+    files = dir(fullfile(nii_dir, '*.nii.gz'));
+    if ~isempty(files)
+
+        % Convert to .nii
+        for i = 1:length(files)
+            
+            gz_path = fullfile(files(i).folder, files(i).name);
+            outdir = files(i).folder;
+
+            gunzip(gz_path, outdir);
+
+            % Optional: name of the unzipped file
+            nii_file = files(i).name(1:end-3);
+
+        end
+    end
+
     files = dir(fullfile(nii_dir, '*.nii'));
     if isempty(files)
-        error('No .nii files found in directory: %s', nii_dir);
+        fprintf('No .nii files found in directory: %s', nii_dir);
     end
 
     % ---- derive base name from first frame ----

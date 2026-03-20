@@ -17,10 +17,6 @@ class ADNIDataset(Dataset):
     def __init__(self,
                  data_dir=None,
                  scan_csv=None, 
-                 diagnostic_csv=None,
-                 adas_csv=None,
-                 mmse_csv=None,
-                 cdr_csv=None,
                  cached_samples=None,
                  modalities={
                      "MRI":["MRI-T1-3T"],
@@ -31,11 +27,10 @@ class ADNIDataset(Dataset):
     
         self.data_dir = data_dir
         self.scan_csv = scan_csv
-        self.diagnostic_csv = diagnostic_csv
+        self.tolerance = tolerance
         self.cached_samples = cached_samples
         self.modalities = modalities 
         self.diagnosis = diagnosis
-        self.tolerance = tolerance
         self.verbose = verbose
         
     def setup(self):
@@ -75,19 +70,10 @@ class ADNIDataset(Dataset):
             # Filter for specified modalities 
             df_scan = df_scan[ df_scan["modality"].isin(list(self.modalities.keys()))].copy()
 
-            # Load csv with all visits
-            df_diagnostic = pd.read_csv(self.diagnostic_csv)
-
-            if self.verbose > 0:
-                print("Matching scans to diagnoses...")
-
-            # Match scans to visits, adding diagnosis column
-            df_scan = match_diagnosis(df_scan, df_diagnostic, self.tolerance)
-
             # Filter for specified diagnosis
             self.df_scan = df_scan[ df_scan["diagnosis"].isin(self.diagnosis)].copy()
-        
-            if self.verbose > 0:
+
+        if self.verbose > 0:
                 print("Verifying scans available in dir...")
 
         # Add file paths to df_scan
@@ -113,6 +99,14 @@ class ADNIDataset(Dataset):
 
         self.df_scan["path"] = paths
         self.df_scan = self.df_scan[ self.df_scan["path"].notna()]
+
+        # Z-score normalization for numerical variables 
+        self.df_scan["MMSE"] = (self.df_scan["MMSE"] - self.df_scan["MMSE"].mean())/self.df_scan["MMSE"].std()
+        self.df_scan["CDR"] = (self.df_scan["CDR"] - self.df_scan["CDR"].mean())/self.df_scan["CDR"].std()
+        self.df_scan["age"] = (self.df_scan["age"] - self.df_scan["age"].mean())/self.df_scan["age"].std()
+
+        # Set gender to {0,1}
+        self.df_scan["gender"] -= 1
 
         if self.cached_samples is None:
 
@@ -152,9 +146,14 @@ class ADNIDataset(Dataset):
     
         X = torch.stack(scans)
         y = torch.tensor(int(row['label']), dtype=torch.long)
-        mask = torch.tensor(mask)
+        mask = torch.tensor(mask, dtype=torch.float)
+        age = torch.tensor(row["age"], dtype=torch.float)
+        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 # {0,1} 
+        mmse = torch.tensor(row["MMSE"], dtype=torch.float)
+        cdr = torch.tensor(row["CDR"], dtype=torch.float)
 
-        return {"X":X, "y":y, "mask":mask, "key":row["strat_key"]}  # Include stratification key
+        return {"X":X, "y":y, "mask":mask, "age":age, "gender":gender, "mmse":mmse,
+                "cdr":cdr, "key":row["strat_key"] }  # Include stratification key
 
     def groups(self):
         return self.df_multimodal["subject_id"].astype(str).tolist()
@@ -171,7 +170,6 @@ class ADNITestDataset(ADNIDataset):
     def __init__(self,
                  data_dir,
                  scan_csv, 
-                 diagnostic_csv,
                  cached_samples=None,
                  modalities={
                      "MRI":["MRI-T1-3T"],
@@ -184,7 +182,6 @@ class ADNITestDataset(ADNIDataset):
     
         self.data_dir = data_dir
         self.scan_csv = scan_csv
-        self.diagnostic_csv = diagnostic_csv
         self.modalities = modalities 
         self.diagnosis = diagnosis
         self.tolerance = tolerance

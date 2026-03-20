@@ -6,6 +6,8 @@ __pycache__/
 # Logs
 *.log
 *.csv
+*.json
+*.tsv
 
 # Output files
 *.pdf
@@ -18,6 +20,8 @@ __pycache__/
 *.out
 *.err
 *.mat
+*.bval
+*.bvec
 
 # Experiments
 experiments/*

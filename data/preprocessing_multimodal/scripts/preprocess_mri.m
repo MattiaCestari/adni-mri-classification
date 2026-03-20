@@ -1,5 +1,10 @@
 function preprocess_mri(mri_path)
 
+    % SPM setup
+    addpath(genpath(char(getenv('SPM_PATH'))));
+    spm('Defaults','FMRI');
+    spm_jobman('initcfg');
+
     % --- Segmentation
     segment_outputs = segment(mri_path);
 

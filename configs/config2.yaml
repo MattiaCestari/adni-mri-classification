@@ -4,8 +4,7 @@ datamodule:
     complete_only: true
     data:
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
-      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
-      diagnostic_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/DXSUM_02Feb2026.csv
+      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:
@@ -46,7 +45,7 @@ model:
     latent_dim: 256
     dropout: 0.1
     base: 8
-    staged_training: True
+    use_demographics: true
 
 optimizer:
   name: AdamW
@@ -60,9 +59,8 @@ criterion:
   params: {}
     
 trainer:
-  max_epochs: 105
+  max_epochs: 75
   accum_steps: 4  # Effective batch size: 16*4 = 64
-  stages: [ 35, 70 ]
 
 callbacks:
   - class: pkg.callbacks.metrics.Metrics

@@ -11,6 +11,29 @@ from itertools import combinations
 # TODO: [OK] confusion matrix based on stratification
 
 
+class DemographicsExpert(nn.Module):
+
+    def __init__(self, latent_dim, use_swish=True): 
+        super().__init__()
+
+        self.net = nn.Sequential(
+            nn.Linear(2, 16), 
+            Swish() if use_swish else nn.ReLU(),
+            nn.Linear(16, 16),
+            Swish() if use_swish else nn.ReLU()
+        )
+
+        self.mlp_mu = nn.Linear(16, latent_dim)
+        self.mlp_logvar = nn.Linear(16, latent_dim) 
+
+    def forward(self, x):
+        x = self.net(x)
+        mu = self.mlp_mu(x)
+        logvar = self.mlp_logvar(x)
+
+        return mu, logvar
+
+
 class Expert(nn.Module):
 
     def __init__(self, latent_dim, base=16, use_swish=True):
@@ -50,21 +73,31 @@ class Expert(nn.Module):
 
 class PoE(BaseModel):
 
-    def __init__(self, n_classes, n_modalities, base=16, training_combos=None, latent_dim=128, dropout=0, staged_training=False):
+    def __init__(self, 
+                 n_classes, 
+                 n_modalities, 
+                 base=16, 
+                 training_combos=None, 
+                 latent_dim=128, 
+                 dropout=0, 
+                 staged_training=False,
+                 use_demographics=False):
+        
         super().__init__()
         
         self.n_classes = n_classes
         self.n_modalities = n_modalities
-        self.latent_dim = latent_dim
         self.staged_training = staged_training
-
+        self.use_demographics = use_demographics
+        self.latent_dim = latent_dim
+        
         if self.staged_training:
             self.head_frozen = False
 
         self.experts = nn.ModuleList([  Expert(latent_dim, base=base) for i in range(n_modalities) ])
 
         self.classifier = nn.Sequential(
-            nn.Linear(latent_dim, 128),
+            nn.Linear(latent_dim+2 if use_demographics else latent_dim, 128),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(128, n_classes)
@@ -121,9 +154,10 @@ class PoE(BaseModel):
 
         return mus, logvars
     
-    def forward_from_cache(self, mus, logvars, mask):
+    def forward_from_cache(self, mus, logvars, mask, demog=None):
         """
         mus, logvars : (B, M, L)
+        demog: (B, 2)
         mask: (B, M)
         """
         mask = mask.to(mus.dtype).unsqueeze(-1)  # (B, M, 1)
@@ -132,6 +166,9 @@ class PoE(BaseModel):
         var = 1/( (T*mask).sum(dim=1) + 1)  # (B, L)
         mu = var*( T*mus*mask ).sum(dim=1)  # (B, L)
 
+        if demog is not None: 
+            mu = torch.cat([mu, demog], axis=1) # (B, L+2)
+
         return self.classifier(mu)  #(B, n_classes)
     
     def train_batch(self, batch, batch_index, stage=None):
@@ -139,6 +176,12 @@ class PoE(BaseModel):
         X = batch["X"]
         y = batch["y"]
         mask = batch["mask"]  # (B, M), 0/1
+
+        demog = None
+        if self.use_demographics:
+            demog = torch.cat([ 
+                batch["age"].unsqueeze(-1), 
+                batch["gender"].unsqueeze(-1)],axis=1)
 
         out = {}
         total_loss = 0.0
@@ -188,7 +231,8 @@ class PoE(BaseModel):
                                         device=mask.device, dtype=mask.dtype)
                 combo_mask[:, list(combo)] = 1
 
-                logits = self.forward_from_cache(mus[idx], logvars[idx], combo_mask)
+                logits = self.forward_from_cache(mus[idx], logvars[idx], combo_mask, demog=demog[idx] if demog is not None else None)
+
                 l = F.cross_entropy(logits, y[idx], weight=self.criterion.weight)
 
                 out["loss_" + "".join(map(str, combo))] = l.item()
@@ -216,8 +260,14 @@ class PoE(BaseModel):
         avail = batch["mask"]  # (B, M) 0/1
         y = batch["y"]
 
+        demog = None
+        if self.use_demographics:
+            demog = torch.cat([ 
+                batch["age"].unsqueeze(-1), 
+                batch["gender"].unsqueeze(-1)],axis=1)
+
         mus, logvars = self.forward_experts(X)                 # (B, M, L)
-        logits = self.forward_from_cache(mus, logvars, avail)  # uses all available modalities per sample
+        logits = self.forward_from_cache(mus, logvars, avail, demog=demog)  # uses all available modalities per sample
 
         probs = F.softmax(logits, dim=1)
         preds = probs.argmax(dim=1)

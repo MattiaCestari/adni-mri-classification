@@ -4,13 +4,11 @@ datamodule:
     data:
       #cached_samples: /project/aereditato/cestari/adni-mri-classification/experiments/troubleshooting/20260228_083552/samples.csv
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
-      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/dataset_multimodal.csv
-      diagnostic_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/DXSUM_02Feb2026.csv
+      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:
-        PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
-        PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
+        MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
     split:
       mode: kfold
       seed: 42
