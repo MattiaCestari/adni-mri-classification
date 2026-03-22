@@ -1,22 +1,23 @@
 import subprocess
 from contextlib import contextmanager
 
-
-def _git(*args, input=None, cwd=None):
-    return subprocess.run(
+def _git(*args, input=None, cwd=None, text=True):
+    out = subprocess.run(
         ["git", *args],
         capture_output=True,
-        text=True,
         check=True,
-        input=None,
-        cwd=None
-    ).stdout.strip()
+        input=input,
+        cwd=cwd,
+    ).stdout
 
+    if text:
+        return out.strip()
+    return out
 
 def get_repo_state():
     return {
         "commit": _git("rev-parse", "HEAD"),
-        "patch": _git("diff", "HEAD"),
+        "patch": _git("diff", "HEAD", text=False),
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD")
     }
 
@@ -27,6 +28,7 @@ def repo_state(target_commit, target_patch=""):
     try:
         # Move to experiment state
         _git("reset", "--hard")
+
         _git("checkout", target_commit)
 
         if target_patch:
@@ -37,7 +39,6 @@ def repo_state(target_commit, target_patch=""):
 
     finally:
         # Restore original state
-        # Move to experiment state
         _git("reset", "--hard")
         _git("checkout", original_state["branch"])
 
