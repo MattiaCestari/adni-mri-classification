@@ -40,9 +40,19 @@ class ADNIDataset(Dataset):
             # Load multimodal samples from cache 
             self.df_multimodal = pd.read_csv(self.cached_samples)
 
-            # Create df_scan
-            modalities = list(self.modalities.keys())
+            # Get diagnoses 
+            self.diagnosis = list(self.df_multimodal["diagnosis"].unique())
 
+            # Get modalities names
+            modalities = []
+            for col in self.df_multimodal.columns: 
+                if self.df_multimodal[col].apply( lambda x : isinstance(x, str) and x.startswith("I")).any(): 
+                    modalities.append(col)
+
+            # As a dict to maintain compatibility
+            self.modalities = {m:"" for m in modalities}
+
+            # Construct scan df 
             series = []
 
             for mode in modalities:
@@ -100,18 +110,18 @@ class ADNIDataset(Dataset):
         self.df_scan["path"] = paths
         self.df_scan = self.df_scan[ self.df_scan["path"].notna()]
 
-        # Z-score normalization for numerical variables 
-        self.df_scan["MMSE"] = (self.df_scan["MMSE"] - self.df_scan["MMSE"].mean())/self.df_scan["MMSE"].std()
-        self.df_scan["CDR"] = (self.df_scan["CDR"] - self.df_scan["CDR"].mean())/self.df_scan["CDR"].std()
-        self.df_scan["age"] = (self.df_scan["age"] - self.df_scan["age"].mean())/self.df_scan["age"].std()
-
-        # Set gender to {0,1}
-        self.df_scan["gender"] -= 1
-
         if self.cached_samples is None:
 
             if self.verbose > 0:
                 print("Creating multimodal samples...")
+
+            # Z-score normalization for numerical variables 
+            self.df_scan["MMSE"] = (self.df_scan["MMSE"] - self.df_scan["MMSE"].mean())/self.df_scan["MMSE"].std()
+            self.df_scan["CDR"] = (self.df_scan["CDR"] - self.df_scan["CDR"].mean())/self.df_scan["CDR"].std()
+            self.df_scan["age"] = (self.df_scan["age"] - self.df_scan["age"].mean())/self.df_scan["age"].std()
+
+            # Set gender to {0,1}
+            self.df_scan["gender"] -= 1
 
             # Create multimodal samples
             self.df_multimodal = create_multimodal_dataframe(self.df_scan, tolerance=self.tolerance)
@@ -147,10 +157,11 @@ class ADNIDataset(Dataset):
         X = torch.stack(scans)
         y = torch.tensor(int(row['label']), dtype=torch.long)
         mask = torch.tensor(mask, dtype=torch.float)
-        age = torch.tensor(row["age"], dtype=torch.float)
-        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 # {0,1} 
-        mmse = torch.tensor(row["MMSE"], dtype=torch.float)
-        cdr = torch.tensor(row["CDR"], dtype=torch.float)
+
+        age = torch.tensor(row["age"], dtype=torch.float) if "age" in row else None
+        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 if "gender" in row else None# {0,1} 
+        mmse = torch.tensor(row["MMSE"], dtype=torch.float) if "MMSE" in row else None
+        cdr = torch.tensor(row["CDR"], dtype=torch.float) if "CDR" in row else None
 
         return {"X":X, "y":y, "mask":mask, "age":age, "gender":gender, "mmse":mmse,
                 "cdr":cdr, "key":row["strat_key"] }  # Include stratification key
