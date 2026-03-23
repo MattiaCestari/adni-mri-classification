@@ -30,7 +30,7 @@ class ADNIDataset(Dataset):
         self.tolerance = tolerance
         self.cached_samples = cached_samples
         self.modalities = modalities 
-        self.diagnosis = diagnosis
+        self.diagnosis = sorted(diagnosis)
         self.verbose = verbose
         
     def setup(self):
@@ -41,7 +41,7 @@ class ADNIDataset(Dataset):
             self.df_multimodal = pd.read_csv(self.cached_samples)
 
             # Get diagnoses 
-            self.diagnosis = list(self.df_multimodal["diagnosis"].unique())
+            self.diagnosis = sorted(list(self.df_multimodal["diagnosis"].unique()))
 
             # Get modalities names
             modalities = []
@@ -158,13 +158,22 @@ class ADNIDataset(Dataset):
         y = torch.tensor(int(row['label']), dtype=torch.long)
         mask = torch.tensor(mask, dtype=torch.float)
 
-        age = torch.tensor(row["age"], dtype=torch.float) if "age" in row else None
-        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 if "gender" in row else None# {0,1} 
-        mmse = torch.tensor(row["MMSE"], dtype=torch.float) if "MMSE" in row else None
-        cdr = torch.tensor(row["CDR"], dtype=torch.float) if "CDR" in row else None
+        age = torch.tensor(row["age"], dtype=torch.float) if "age" in row else -512
+        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 if "gender" in row else -512    # {0,1} 
+        mmse = torch.tensor(row["MMSE"], dtype=torch.float) if "MMSE" in row else -512
+        cdr = torch.tensor(row["CDR"], dtype=torch.float) if "CDR" in row else -512
 
-        return {"X":X, "y":y, "mask":mask, "age":age, "gender":gender, "mmse":mmse,
-                "cdr":cdr, "key":row["strat_key"] }  # Include stratification key
+        return {
+                    "X":X, 
+                    "y":y, 
+                    "mask":mask,
+                    "subject":row["subject_id"], 
+                    "age":age, 
+                    "gender":gender, 
+                    "mmse":mmse,
+                    "cdr":cdr, 
+                    "key":row["strat_key"]          # Include stratification key
+        }  
 
     def groups(self):
         return self.df_multimodal["subject_id"].astype(str).tolist()
