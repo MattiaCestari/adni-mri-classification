@@ -2,8 +2,8 @@
 #SBATCH --job-name={job_name}
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=1
-#SBATCH --mem=2G
+#SBATCH --cpus-per-task={cores}
+#SBATCH --mem={mem}
 #SBATCH --time={time}
 #SBATCH --output={log_out}
 #SBATCH --error={log_err}

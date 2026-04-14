@@ -1,4 +1,16 @@
 
+from pathlib import Path
+import sys
+
+# ==== Adjust path to make pkg imports work ===== #
+ROOT = Path.cwd()
+while not (ROOT / "pkg").exists() and ROOT != ROOT.parent:
+    ROOT = ROOT.parent
+
+sys.path.insert(0, str(ROOT))
+print(ROOT)
+# =============================================== #
+
 import os
 import sys
 import yaml
@@ -145,6 +157,18 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '--mem',
+        default="4G",
+        help='Memory'
+    )
+
+    parser.add_argument(
+        '--cores',
+        default=1,
+        help='Cores'
+    )
+
+    parser.add_argument(
         "--no-timestamp", 
         action="store_true",
         help="Do not append timestamp subdir")
@@ -171,6 +195,8 @@ if __name__ == "__main__":
             log_err=os.path.join(run_dir, "slurm.err"),
             config=os.path.abspath(args.config),
             exp_dir=os.path.abspath(args.exp_dir),
+            cores=args.cores,
+            mem=args.mem,
             name=args.name,
             no_timestamp="--no-timestamp" if args.no_timestamp else "",
             run_dir=os.path.abspath(run_dir),

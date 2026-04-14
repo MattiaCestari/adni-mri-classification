@@ -1,5 +1,6 @@
 
-import torch 
+import torch
+import time
 from tqdm import tqdm
 
 from pkg.training.optimizer import build_optimizer
@@ -72,7 +73,8 @@ class Trainer:
                  automatic_optimization=True,
                  accum_steps=1,
                  stages=[],
-                 reset_optim=True):
+                 reset_optim=True,
+                 use_amp=True):
 
         self.model = model
         self.optimizer_cfg = optimizer_cfg
@@ -83,6 +85,8 @@ class Trainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.stages = stages
         self.reset_optim = reset_optim
+        self.use_amp = use_amp
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 
         # Move model to device
         self.model = self.model.to(self.device)
@@ -125,14 +129,16 @@ class Trainer:
             # Stage update logic
             new_stage = self._get_stage(epoch)
             if new_stage != self.ctx["stage"]: # Transition between stages 
+                self.ctx["stage"] = new_stage
+                self.cb.on_stage_change(self.ctx)
+                
                 if self.reset_optim:
                     self.ctx["optimizer"] = build_optimizer(
                                 self.optimizer_cfg, 
                                 model_params=self.ctx["model"].parameters()
                     )
                     self.optimizer = self.ctx["optimizer"]
-                self.ctx["stage"] = new_stage
-                self.cb.on_stage_change(self.ctx)
+                
                 print(f"Stage {new_stage}")
             
             print(f"Epoch {epoch}")
@@ -182,32 +188,65 @@ class Trainer:
         train_loader = self.datamodule.train_dataloader(epoch)
 
         if self.automatic_optimization:
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
+
+        t_prev = time.perf_counter()
 
         for i, batch in enumerate(train_loader):
+
+            t_batch_ready = time.perf_counter()
 
             # Move tensors to device
             for key, v in batch.items():    
                 if isinstance(v, torch.Tensor):
-                    batch[key] = v.to(self.device)
+                    batch[key] = v.to(self.device, non_blocking=True)
      
+            torch.cuda.synchronize()
+            t_to_device = time.perf_counter()
+            
             self.cb.on_train_batch_start(self.ctx)
-            loss, step_out = self.model.train_batch(batch, i, stage=self.ctx["stage"])
 
-            if self.automatic_optimization:
-                (loss/k).backward()
+            with torch.amp.autocast("cuda", dtype=torch.float16, enabled=self.use_amp):
+                loss, step_out = self.model.train_batch(batch, i, stage=self.ctx["stage"])
 
             self.cb.on_train_batch_end(self.ctx, step_out, batch, i)
 
+            torch.cuda.synchronize()
+            t_forward = time.perf_counter()
+
+            if loss is None:    # Skip batch if loss is None 
+                continue
+
+            if self.automatic_optimization:
+                self.scaler.scale(loss / k).backward()
+
+            torch.cuda.synchronize()
+            t_backward = time.perf_counter()
+
             if self.automatic_optimization and (i+1)%k == 0:
                 # Gradient clipping ?
-                #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+                # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                self.optimizer.zero_grad(set_to_none=True)
+
+            torch.cuda.synchronize()
+            t_step = time.perf_counter()
+
+            # print(
+            #     f"load={t_batch_ready - t_prev:.3f}s | "
+            #     f"to_device={t_to_device - t_batch_ready:.3f}s | "
+            #     f"forward={t_forward - t_to_device:.3f}s | "
+            #     f"backward={t_backward - t_forward:.3f}s | "
+            #     f"step={t_step - t_backward:.3f}s"
+            # )
+
+            t_prev = time.perf_counter()
             
         if self.automatic_optimization and (i+1)%k != 0:
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad(set_to_none=True)
 
     def validate_epoch(self, epoch):
 
@@ -218,10 +257,13 @@ class Trainer:
             # Move tensors to device
             for key, v in batch.items():    
                 if isinstance(v, torch.Tensor):
-                    batch[key] = v.to(self.device)
+                    batch[key] = v.to(self.device, non_blocking=True)
 
             self.cb.on_val_batch_start(self.ctx)
-            step_out = self.model.validate_batch(batch, i, stage=self.ctx["stage"])
+
+            with torch.amp.autocast("cuda", dtype=torch.float16, enabled=self.use_amp):
+                step_out = self.model.validate_batch(batch, i, stage=self.ctx["stage"])
+            
             self.cb.on_val_batch_end(self.ctx, step_out, batch, i)
 
     def _get_stage(self, epoch):

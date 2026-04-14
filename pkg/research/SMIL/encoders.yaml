@@ -1,7 +1,6 @@
 datamodule:
-  class: pkg.data.datamodules.ADNITestDataModule
+  class: pkg.data.datamodules.ADNIDataModule
   args:
-    complete_only: False
     data:
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
       scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
@@ -9,10 +8,10 @@ datamodule:
       tolerance: 180
       modalities:
         #PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
-        #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
-        #PET-AV1451: ["PET-AV1451"]
         PET-fdg: ["PET-FDG"]
-        MRI: ["MRI-T1-3T", "MRI-T1-1.5T"]
+        MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
+        #MRI: ["MRI-T1-3T"]
+        #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
     split:
       mode: kfold
       seed: 42
@@ -26,7 +25,7 @@ datamodule:
       pin_memory: True 
       num_workers: 4
       prefetch_factor: 2
-
+    
     transform:
       - random_flip:
           p: 0.5
@@ -42,21 +41,17 @@ datamodule:
           std: 0.8
 
 model:
-  class: pkg.models.poe.PoE
+  class: models.Encoder
   args:
-    n_modalities: 2
-    n_classes: 3
-    staged_training: True
-    use_demographics: True
-    base: 8
-    dropout: 0.1
+    num_classes: 3
     latent_dim: 256
+    base: 8
 
 optimizer:
   name: AdamW
   params:
     lr: 0.00005
-    weight_decay: 0.01
+    weight_decay: 0
 
 criterion:
   name: CrossEntropyLoss
@@ -64,9 +59,8 @@ criterion:
   params: {}
     
 trainer:
-  max_epochs: 60
-  accum_steps: 8  # Effective batch size: 8*8 = 64
-  stages: [30, 60]
+  max_epochs: 30
+  accum_steps: 4  # Effective batch size: 8*4 = 32
 
 callbacks:
   - class: pkg.callbacks.metrics.Metrics
@@ -74,7 +68,7 @@ callbacks:
 
   - class: pkg.callbacks.checkpoint.CheckpointManager
     args: 
-      monitor: val/loss
+      monitor: val/loss_01  # Monitor multimodal loss
       mode: min 
       patience: 12
 
@@ -83,7 +77,6 @@ callbacks:
       name: CosineAnnealingLR
       params:
         T_max: 60
-        eta_min: 0.000001
       
   - class: pkg.callbacks.test_report.TestReport
     args: {}

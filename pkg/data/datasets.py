@@ -49,8 +49,9 @@ class ADNIDataset(Dataset):
                 if self.df_multimodal[col].apply( lambda x : isinstance(x, str) and x.startswith("I")).any(): 
                     modalities.append(col)
 
-            # As a dict to maintain compatibility
-            self.modalities = {m:"" for m in modalities}
+            # If modalities are not specified, construct
+            if self.modalities is None:
+                self.modalities = {m:"" for m in modalities}
 
             # Construct scan df 
             series = []
@@ -61,6 +62,8 @@ class ADNIDataset(Dataset):
 
             self.df_scan = pd.DataFrame( {"image_id":pd.concat(series)})
             self.df_scan = self.df_scan.reset_index(drop=True)
+
+
 
         else:
 
@@ -92,8 +95,8 @@ class ADNIDataset(Dataset):
         for index, row in self.df_scan.iterrows():
 
             id = row["image_id"]
-            allowed_filenames = ['clean_w_masked_m' + id + '.nii', 
-                                'clean_w_masked_rstatic_' + id + '.nii']
+            allowed_filenames = ['clean_w_masked_m' + id + '.npy', 
+                                'clean_w_masked_rstatic_' + id + '.npy']
             
             found = False
             for fname in allowed_filenames:
@@ -126,54 +129,101 @@ class ADNIDataset(Dataset):
             # Create multimodal samples
             self.df_multimodal = create_multimodal_dataframe(self.df_scan, tolerance=self.tolerance)
 
+        self.df_multimodal = self.df_multimodal.reset_index(drop=True)
+        self.df_scan = self.df_scan.reset_index(drop=True)
+
         # Add labels: map diagnosis to 0, ... , |classes|
         diag_to_label = {diag: i for i, diag in enumerate(self.diagnosis)}
         self.df_multimodal['label'] = self.df_multimodal['diagnosis'].map(diag_to_label)
+
+        # Prepare samples now to speed up __getitem__ 
+        self._prepare_samples()
+
+        # Set all active modalities by default
+        self.set_active_modalities("all")
+
+    def _prepare_samples(self):
+
+        self.modalities_sorted = sorted(self.modalities.keys())
+        self.rows = self.df_multimodal.reset_index(drop=True)
+
+        # Fast lookup: image_id -> npy path
+        self.path_by_image_id = dict(zip(self.df_scan["image_id"], self.df_scan["path"]))
+
+        self.n_modalities = len(self.modalities_sorted)
+        self.scan_shape = (1, 91, 109, 91)
+
+        self.samples = []
+
+        for _, row in self.rows.iterrows():
+      
+            modes = {}
+            for mode in self.modalities_sorted:
+                image_id = row[mode]
+
+                if isinstance(image_id, str):
+
+                    modes[mode] = {"path":self.path_by_image_id[image_id], "mask":1.0}
+                
+                else:
+                    modes[mode] = {"path":None, "mask":0.0}
+
+            self.samples.append({
+                "modes": modes,
+                "label": int(row["label"]),
+                "subject": row["subject_id"],
+                "age": float(row["age"]) if "age" in row and pd.notna(row["age"]) else -512.0,
+                "gender": float(row["gender"]) - 1 if "gender" in row and pd.notna(row["gender"]) else -512.0,
+                "mmse": float(row["MMSE"]) if "MMSE" in row and pd.notna(row["MMSE"]) else -512.0,
+                "cdr": float(row["CDR"]) if "CDR" in row and pd.notna(row["CDR"]) else -512.0,
+                "key": row["strat_key"],
+            })
+
+    def set_active_modalities(self, active_modalities="all"):
+
+        if active_modalities == "all":
+            self.active_modalities = sorted(self.modalities.keys())
+        else:
+            if not isinstance(active_modalities, list):
+                raise ValueError("Active modalities must be 'all' or a list")
+            
+            if not set(active_modalities) <= set(self.modalities.keys()):
+                raise ValueError("Invalid modality name in active modalities")
+
+            self.active_modalities = sorted(active_modalities)
 
     def __len__(self):
         return len(self.df_multimodal)
     
     def __getitem__(self, index):
 
-        row = self.df_multimodal.loc[index]
+        sample = self.samples[index]
 
-        scans = []
-        mask = []
+        X = torch.zeros((len(self.active_modalities), *self.scan_shape), dtype=torch.float32)
+        mask = torch.tensor( [sample["modes"][mode]["mask"] for mode in self.active_modalities], dtype=torch.float32)
 
-        for mode in sorted(list(self.modalities.keys())):
-            
-            if not isinstance(row[mode], str):
-                scans.append(torch.zeros((1, 91, 109, 91)))     # Pad with zeros
-                mask.append(0)                                  # Scan is missing
-                continue
+        for i, mode in enumerate(self.active_modalities): 
+            path = sample["modes"][mode]["path"]
 
-            path = self.df_scan.loc[ self.df_scan["image_id"] == row[mode], "path"].tolist()[0]
-            vol = nib.load(path).get_fdata().astype(np.float32)         
-            img = torch.from_numpy(vol).unsqueeze(0)  # Add channel dimension (1,D,H,W)
+            if path is None:
+                continue 
 
-            scans.append(img)
-            mask.append(1)
-    
-        X = torch.stack(scans)
-        y = torch.tensor(int(row['label']), dtype=torch.long)
-        mask = torch.tensor(mask, dtype=torch.float)
+            vol = np.load(path, mmap_mode="r")   # shape: (91, 109, 91) or similar
+            X[i, 0] = torch.from_numpy(np.asarray(vol, dtype=np.float32))
 
-        age = torch.tensor(row["age"], dtype=torch.float) if "age" in row else -512
-        gender = torch.tensor(row["gender"], dtype=torch.float) - 1 if "gender" in row else -512    # {0,1} 
-        mmse = torch.tensor(row["MMSE"], dtype=torch.float) if "MMSE" in row else -512
-        cdr = torch.tensor(row["CDR"], dtype=torch.float) if "CDR" in row else -512
+        y = torch.tensor(sample["label"], dtype=torch.long)
 
         return {
-                    "X":X, 
-                    "y":y, 
-                    "mask":mask,
-                    "subject":row["subject_id"], 
-                    "age":age, 
-                    "gender":gender, 
-                    "mmse":mmse,
-                    "cdr":cdr, 
-                    "key":row["strat_key"]          # Include stratification key
-        }  
+            "X": X,
+            "y": y,
+            "mask": mask,
+            "subject": sample["subject"],
+            "age": torch.tensor(sample["age"], dtype=torch.float32),
+            "gender": torch.tensor(sample["gender"], dtype=torch.float32),
+            "mmse": torch.tensor(sample["mmse"], dtype=torch.float32),
+            "cdr": torch.tensor(sample["cdr"], dtype=torch.float32),
+            "key": sample["key"],
+        }
 
     def groups(self):
         return self.df_multimodal["subject_id"].astype(str).tolist()

@@ -30,6 +30,7 @@ def build_loader(
     pin_memory=False,
     weighted_sampling=False,
     labels=None,
+    prefetch_factor=None
 ):
     """
     Simple loader builder.
@@ -51,4 +52,5 @@ def build_loader(
         sampler=sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor
     )

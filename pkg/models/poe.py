@@ -11,29 +11,6 @@ from itertools import combinations
 # TODO: [OK] confusion matrix based on stratification
 
 
-class DemographicsExpert(nn.Module):
-
-    def __init__(self, latent_dim, use_swish=True): 
-        super().__init__()
-
-        self.net = nn.Sequential(
-            nn.Linear(2, 16), 
-            Swish() if use_swish else nn.ReLU(),
-            nn.Linear(16, 16),
-            Swish() if use_swish else nn.ReLU()
-        )
-
-        self.mlp_mu = nn.Linear(16, latent_dim)
-        self.mlp_logvar = nn.Linear(16, latent_dim) 
-
-    def forward(self, x):
-        x = self.net(x)
-        mu = self.mlp_mu(x)
-        logvar = self.mlp_logvar(x)
-
-        return mu, logvar
-
-
 class Expert(nn.Module):
 
     def __init__(self, latent_dim, base=16, use_swish=True):
@@ -53,7 +30,7 @@ class Expert(nn.Module):
             ResidualBlock(base*2, base*4, stride=2, use_swish=use_swish),
             ResidualBlock(base*4, base*4, use_swish=use_swish),
 
-            SelfAttention3D(base*4, base), 
+            #SelfAttention3D(base*4, base), 
 
             nn.AdaptiveAvgPool3d(1),
             nn.Flatten(),
@@ -69,7 +46,7 @@ class Expert(nn.Module):
         logvar = self.mlp_logvar(x)
 
         return mu, logvar
-
+               
 
 class PoE(BaseModel):
 
@@ -81,7 +58,7 @@ class PoE(BaseModel):
                  latent_dim=128, 
                  dropout=0, 
                  staged_training=False,
-                 use_demographics=False):
+                 use_demographics=True):
         
         super().__init__()
         
@@ -153,6 +130,39 @@ class PoE(BaseModel):
             logvars[:, i] = logvar_i
 
         return mus, logvars
+
+    def forward_experts_adaptive(self, X, avail_mask, modes="all", sparse_threshold=0.75):
+        B = X.shape[0]
+        device = X.device
+        dtype = X.dtype
+        L = self.latent_dim
+
+        mus = torch.zeros(B, self.n_modalities, L, device=device, dtype=dtype)
+        logvars = torch.zeros(B, self.n_modalities, L, device=device, dtype=dtype)
+
+        if modes == "all":
+            mode_indices = range(self.n_modalities)
+        else:
+            mode_indices = modes
+
+        for i in mode_indices:
+            avail = avail_mask[:, i].bool()
+            n = avail.sum().item()
+
+            if n == 0:
+                continue
+
+            if n / B >= sparse_threshold:
+                mu_i, logvar_i = self.experts[i](X[:, i])
+                mus[:, i] = mu_i.to(mus.dtype)
+                logvars[:, i] = logvar_i.to(logvars.dtype)
+            else:
+                idx = avail.nonzero(as_tuple=True)[0]
+                mu_i, logvar_i = self.experts[i](X[idx, i])
+                mus[idx, i] = mu_i.to(mus.dtype)
+                logvars[idx, i] = logvar_i.to(logvars.dtype)
+
+        return mus, logvars
     
     def forward_from_cache(self, mus, logvars, mask, demog=None):
         """
@@ -188,35 +198,28 @@ class PoE(BaseModel):
         n_losses = 0
 
         if self.staged_training:
-            if stage == 0: 
-                # Optimize first expert + head 
-                self.training_combos = [ [0,] ]
+            if stage == 0:
+
+                # Optimize head and use full samples
+                self.training_combos = [ [i for i in range(self.n_modalities)] ]
                 
-            elif stage > 0 and stage <= self.n_modalities-1:
+            elif stage == 1:
                 
-                # Freeze head
+                # Freeze head.
                 if not self.head_frozen:
                     for param in self.classifier.parameters(): 
                         param.requires_grad = False
                     self.head_frozen = True
 
-                self.training_combos = [ [stage,] ] # Optimize single experts 
+                # Optimize using single samples
+                self.training_combos = [ [i,] for i in range(self.n_modalities) ]
 
-            else: 
-                # Unfreeze head
-                if self.head_frozen: 
-                    for param in self.classifier.parameters(): 
-                        param.requires_grad = True
-                    self.head_frozen = False
-
-                # Optimize all experts together
-                self.training_combos = [ [i for i in range(self.n_modalities)] ]
 
         # Compute required modalities (union of combos) to be forwarded once 
         required_modes = sorted(set(i for combo in self.training_combos for i in combo))
 
         # Compute required experts once
-        mus, logvars = self.forward_experts(X, modes=required_modes)  # (B, M, L)
+        mus, logvars = self.forward_experts_adaptive(X, mask, modes=required_modes)  # (B, M, L)
 
         for combo in self.training_combos:
 
@@ -241,8 +244,8 @@ class PoE(BaseModel):
 
         # avoid div-by-zero
         if n_losses == 0:
-            total_loss = torch.zeros((), device=y.device, requires_grad=True)
-            return total_loss, out
+            #total_loss = torch.zeros((), device=y.device, requires_grad=True)
+            return None, out
 
         loss = total_loss / n_losses
         out["loss"] = loss.item()
@@ -266,7 +269,7 @@ class PoE(BaseModel):
                 batch["age"].unsqueeze(-1), 
                 batch["gender"].unsqueeze(-1)],axis=1)
 
-        mus, logvars = self.forward_experts(X)                 # (B, M, L)
+        mus, logvars = self.forward_experts_adaptive(X, avail)                 # (B, M, L)
         logits = self.forward_from_cache(mus, logvars, avail, demog=demog)  # uses all available modalities per sample
 
         probs = F.softmax(logits, dim=1)

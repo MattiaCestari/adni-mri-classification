@@ -67,7 +67,6 @@ class ADNIDataModule(DataModule):
         
     def setup(self):
 
-
         #Setup dataset
         self.ds.setup()
 
@@ -76,13 +75,37 @@ class ADNIDataModule(DataModule):
 
         # Save test indices
         self._test_idx = splitter.test_split()
-        
-        # Create test dataset and loader
-        test_dataset = Subset(self.ds, self._test_idx)
-        self._test_loader = build_loader(test_dataset, labels=None)
 
         # Get train and validation indices for each fold
         self.folds = splitter.cv_split()
+
+        # Set all modalities active by default
+        self.set_active_modalities("all")
+
+    def set_active_modalities(self, active_modalities="all"):
+
+        # Configure dataset
+        self.ds.set_active_modalities(active_modalities)
+        active_modalities = self.ds.active_modalities
+        
+        # Only use indices where at least one of the selected modalities are available
+        df = self.ds.df_multimodal[ self.ds.df_multimodal[ active_modalities ].notna().any(axis=1) ].copy()
+        self.avail_idx = set(list(df.index))
+
+        # Create test dataset and loader using intersections between split indices and available indices 
+        avail_test_indices = list(set(self._test_idx).intersection(self.avail_idx))
+        test_dataset = Subset(self.ds, avail_test_indices)
+
+        loader_cfg = self.loader_cfg
+        loader_cfg["shuffle"] = False
+        loader_cfg["weighted_sampling"] = False
+        self._test_loader = build_loader(test_dataset, labels=None, **loader_cfg)
+
+        #print(f"{len(self.ds)} {len( avail_test_indices )} {len(test_dataset)} {len(self._test_loader)} ")
+
+        # Set fold again if specified
+        if self.fold_index is not None:
+            self.set_fold(self.fold_index)
 
     def set_fold(self, idx):
 
@@ -92,8 +115,8 @@ class ADNIDataModule(DataModule):
         self.fold_index = idx
 
         # Indices   
-        train_idxs = self.folds[idx][0]
-        val_idxs = self.folds[idx][1]
+        train_idxs = list(  set(self.folds[idx][0]).intersection(self.avail_idx) )
+        val_idxs = list( set(self.folds[idx][1]).intersection(self.avail_idx) ) 
 
         # Augmentation transform
         augmentation = build_augmentation(self.transform_cfg)
@@ -107,7 +130,10 @@ class ADNIDataModule(DataModule):
 
         # Loaders 
         self._train_loader = build_loader(train_ds, labels=self.train_labels, **self.loader_cfg)
-        self._val_loader = build_loader(val_ds, batch_size=2)
+
+        self.loader_cfg["shuffle"] = False  # Turn off for validation
+        self.loader_cfg["weighted_sampling"] = False 
+        self._val_loader = build_loader(val_ds, **self.loader_cfg)
 
     def n_folds(self):
         return len(self.folds)
