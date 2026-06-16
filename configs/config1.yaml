@@ -3,8 +3,9 @@ datamodule:
   args:
     complete_only: False
     data:
+      cached_samples: /project/aereditato/cestari/adni-mri-classification/final.csv
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
-      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
+      #scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:

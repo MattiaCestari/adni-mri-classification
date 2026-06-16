@@ -8,18 +8,24 @@ def build_sampler(*, labels=None, weights=None):
     Returns a WeightedRandomSampler.
     Provide either:
       - weights: array-like, len = num_samples
-      - labels: int labels (0..C-1) to compute inverse-freq weights
+      - labels: labels of any hashable type, e.g. ints or strings
     """
     if weights is None:
         if labels is None:
             raise ValueError("build_sampler requires either weights or labels.")
+
         labels = np.asarray(labels)
-        class_counts = np.bincount(labels)
-        class_weights = 1.0 / class_counts
-        weights = class_weights[labels]
+
+        # Convert arbitrary labels/strings to integer group ids
+        _, group_ids = np.unique(labels, return_inverse=True)
+
+        group_counts = np.bincount(group_ids)
+        group_weights = 1.0 / group_counts
+        weights = group_weights[group_ids]
 
     w = torch.as_tensor(weights, dtype=torch.double)
     return WeightedRandomSampler(w, num_samples=len(w), replacement=True)
+
 
 
 def build_loader(

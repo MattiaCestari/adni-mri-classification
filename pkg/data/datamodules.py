@@ -4,7 +4,8 @@ from torch.utils.data import DataLoader, Subset
 from .augmentation import build_augmentation
 from .loaders import build_loader
 
-import numpy as np 
+import numpy as np
+import copy
 import pandas as pd
 import os
 import json
@@ -96,10 +97,15 @@ class ADNIDataModule(DataModule):
         avail_test_indices = list(set(self._test_idx).intersection(self.avail_idx))
         test_dataset = Subset(self.ds, avail_test_indices)
 
-        loader_cfg = self.loader_cfg
-        loader_cfg["shuffle"] = False
-        loader_cfg["weighted_sampling"] = False
-        self._test_loader = build_loader(test_dataset, labels=None, **loader_cfg)
+        test_loader_cfg = copy.deepcopy(self.loader_cfg)
+        test_loader_cfg["shuffle"] = False
+        test_loader_cfg["weighted_sampling"] = False
+
+        self._test_loader = build_loader(
+            test_dataset,
+            labels=None,
+            **test_loader_cfg
+        )
 
         #print(f"{len(self.ds)} {len( avail_test_indices )} {len(test_dataset)} {len(self._test_loader)} ")
 
@@ -126,14 +132,24 @@ class ADNIDataModule(DataModule):
         val_ds = Subset(self.ds, val_idxs)
 
         # Store train_labels (can be used for computing weights for loss criterion)
-        self.train_labels = np.array(self.ds.labels())[train_idxs]
+        #self.train_labels = np.array(self.ds.labels())[train_idxs]
+        self.train_labels = np.array(self.ds.strat_keys())[train_idxs]  # Use stratification keys instead
 
-        # Loaders 
-        self._train_loader = build_loader(train_ds, labels=self.train_labels, **self.loader_cfg)
+        train_loader_cfg = copy.deepcopy(self.loader_cfg)
+        self._train_loader = build_loader(
+            train_ds,
+            labels=self.train_labels,
+            **train_loader_cfg
+        )
 
-        self.loader_cfg["shuffle"] = False  # Turn off for validation
-        self.loader_cfg["weighted_sampling"] = False 
-        self._val_loader = build_loader(val_ds, **self.loader_cfg)
+        val_loader_cfg = copy.deepcopy(self.loader_cfg)
+        val_loader_cfg["shuffle"] = False
+        val_loader_cfg["weighted_sampling"] = False
+
+        self._val_loader = build_loader(
+            val_ds,
+            **val_loader_cfg
+        )
 
     def n_folds(self):
         return len(self.folds)

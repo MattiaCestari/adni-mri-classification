@@ -17,6 +17,8 @@ import yaml
 import argparse
 import subprocess
 import shutil
+import numpy as np
+import random
 
 from pkg.training.criterion import build_criterion
 from pkg.utils.instantiate import instantiate
@@ -24,7 +26,36 @@ from pkg.training.trainer import Trainer
 from datetime import datetime
 from pathlib import Path
 
+import os
+import random
+import numpy as np
+import torch
+
+def seed_everything(seed: int):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+
 def save_reproducibility_info(config_file, exp_dir):
+
+    # Seed everything
+    seed = 42
+    seed_everything(seed)
+    
+    os.makedirs(exp_dir, exist_ok=True)
+
+    # Save seed
+    with open(os.path.join(exp_dir, "seed.txt"), "w") as f:
+        f.write(str(seed))
 
     os.makedirs(exp_dir, exist_ok=True)
 

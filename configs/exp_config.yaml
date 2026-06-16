@@ -1,11 +1,10 @@
 datamodule:
-  class: pkg.data.datamodules.ADNITestDataModule
+  class: pkg.data.datamodules.ADNIDataModule
   args:
-    complete_only: false
     data:
       cached_samples: /project/aereditato/cestari/adni-mri-classification/final.csv
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
-      #scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
+      scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
       diagnosis: [1, 2, 3]
       tolerance: 180
       modalities:
@@ -22,7 +21,7 @@ datamodule:
       val_size: 0.1
     loader:
       batch_size: 8
-      weighted_sampling: false
+      weighted_sampling: true
       shuffle: true
       pin_memory: True 
       num_workers: 4
@@ -60,7 +59,6 @@ optimizer:
 
 criterion:
   name: CrossEntropyLoss
-  weights: auto
   params: {}
     
 trainer:
@@ -73,7 +71,7 @@ callbacks:
 
   - class: pkg.callbacks.checkpoint.CheckpointManager
     args: 
-      monitor: val/loss_01  # Monitor multimodal loss
+      monitor: val/loss_0  # Monitor unimodal loss
       mode: min 
       patience: 12
 

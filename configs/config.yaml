@@ -3,7 +3,7 @@ datamodule:
   args:
     complete_only: false
     data:
-      cached_samples: /project/aereditato/cestari/adni-mri-classification/experiments/fdg_mri_demog_complete_only/20260319_043211/samples.csv
+      cached_samples: /project/aereditato/cestari/adni-mri-classification/experiments/samples.csv
       data_dir: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/data/
       scan_csv: /project/aereditato/cestari/adni-mri-classification/data/preprocessing_multimodal/csv/adni/dataset_multimodal.csv
       diagnosis: [1, 2, 3]
@@ -11,8 +11,8 @@ datamodule:
       modalities:
         #PET-amyloid: ["PET-AV45", "PET-NAV4694", "PET-FBB"]
         #PET-tau: ["PET-AV1451", "PET-MK6240","PET-PI2620"]
-        #PET-fdg: ["PET-FDG"]
-        MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
+        PET-fdg: ["PET-FDG"]
+        #MRI: ["MRI-T1-1.5T", "MRI-T1-3T"]
         #MRI: ["MRI-T1-3T"]
     split:
       mode: kfold
@@ -43,7 +43,7 @@ datamodule:
           std: 0.8
 
 model:
-  class: pkg.models.poe.PoE
+  class: pkg.models.poe2.PoE
   args:
     n_modalities: 1
     n_classes: 3
